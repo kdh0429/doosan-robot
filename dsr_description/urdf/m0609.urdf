@@ -18,11 +18,11 @@
     <color rgba="0.941 0.941 0.941 1.0"/>
   </material>
   
-  <link name="base"/>
+  <!-- <link name="base"/>
   <joint name="fixed" type="fixed">
     <parent link="base"/>
     <child link="base_0"/>
-  </joint>
+  </joint> -->
   
   <link name="base_0">
 	<inertial>
