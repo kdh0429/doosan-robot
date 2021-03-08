@@ -14,6 +14,17 @@ const int dof = 6;
 typedef Eigen::Matrix< double, 6, 1 > Vector6d;
 typedef Eigen::Matrix< double, 6, 6 > Matrix6d;
 
+void MotorInertiaReflectedCompositeRigidBodyAlgorithm(RigidBodyDynamics::Model &model, Vector6d q, Eigen::MatrixXd &A, bool update_kinematics){
+
+    RigidBodyDynamics::CompositeRigidBodyAlgorithm(model, q, A, update_kinematics);
+    A(0,0) += 2.6496;
+    A(1,1) += 2.6496;
+    A(2,2) += 1.37;
+    A(3,3) += 0.6336;
+    A(4,4) += 0.6336;
+    A(5,5) += 0.63296;
+}
+
 // Get C matrix (C*qdot is coriolis+centrifugal torque)
 Eigen::MatrixXd getC(RigidBodyDynamics::Model &model, Vector6d q, Vector6d qdot){
     double h = 2e-12;
@@ -31,12 +42,12 @@ Eigen::MatrixXd getC(RigidBodyDynamics::Model &model, Vector6d q, Vector6d qdot)
     for (int i = 0; i < dof; i++)
     {
         H_origin.setZero();
-        RigidBodyDynamics::CompositeRigidBodyAlgorithm(model, q, H_origin, true);
+        MotorInertiaReflectedCompositeRigidBodyAlgorithm(model, q, H_origin, true);
 
         q_new = q;
         q_new(i) += h;
         H_new.setZero();
-        RigidBodyDynamics::CompositeRigidBodyAlgorithm(model, q_new, H_new, true);
+        MotorInertiaReflectedCompositeRigidBodyAlgorithm(model, q_new, H_new, true);
 
         m[i].resize(dof, dof);
         m[i] = (H_new - H_origin) / h;
@@ -83,7 +94,7 @@ int main(int argc, char **argv)
 
     // Load URDF model
     RigidBodyDynamics::Model model;
-    RigidBodyDynamics::Addons::URDFReadFromFile("/home/kim/doosan_ws/src/doosan-robot/dsr_description/urdf/m0609.urdf", &model, false, false);
+    RigidBodyDynamics::Addons::URDFReadFromFile("/home/kim/doosan_ws/src/doosan-robot/dsr_description/urdf/m0609_modify.urdf", &model, false, false);
 
     // Load data file
     std::ifstream openFile("/home/kim/ssd2/dusan_ws/2nd/data/robot1_20190829/free/0_00kg/1/DRCL_Data_1.txt");
@@ -116,8 +127,12 @@ int main(int argc, char **argv)
 
     // Data and dynamic matrix variables
     Vector6d q;
-    Vector6d q_dot;    
+    Vector6d q_dot;  
+    Vector6d q_dot_d;  
+    Vector6d q_dot_d_pre;   
+    Vector6d q_ddot; 
     Vector6d tau_m;
+    Eigen::VectorXd tau_inv_dyn;
 
     Eigen::MatrixXd A;
     Eigen::MatrixXd C;
@@ -129,6 +144,7 @@ int main(int argc, char **argv)
 
     Vector6d q_dot_zero;
     q_dot_zero.setZero();
+
 
     // Momentum observer variables
     Vector6d integral_term;
@@ -158,6 +174,7 @@ int main(int argc, char **argv)
         C_T.setZero(6,6);
         g.setZero(6);
         nonlinear.setZero(6);
+        tau_inv_dyn.setZero(6);
         q_dot_zero.setZero();
 
         // Read data
@@ -175,14 +192,12 @@ int main(int argc, char **argv)
         q << data_arr[7], data_arr[8], data_arr[9], data_arr[10], data_arr[11], data_arr[12];
         q_dot << data_arr[13], data_arr[14], data_arr[15], data_arr[16], data_arr[17], data_arr[18];
         tau_m << data_arr[1], data_arr[2], data_arr[3], data_arr[4], data_arr[5], data_arr[6];
+        q_dot_d << data_arr[25], data_arr[26], data_arr[27], data_arr[28], data_arr[29], data_arr[30];
 
         // Current dynamics information
-        RigidBodyDynamics::CompositeRigidBodyAlgorithm(model, q, A, true);
+        MotorInertiaReflectedCompositeRigidBodyAlgorithm(model, q, A, true);
         C = getC(model, q, q_dot);
         C_T = C.transpose();
-        // q.setZero();
-        // q_dot_zero.setZero();
-        // g.setZero();
         RigidBodyDynamics::NonlinearEffects(model, q, q_dot_zero, g);
         // RigidBodyDynamics::NonlinearEffects(model, q, q_dot, nonlinear);
         // b = nonlinear - g;
@@ -192,11 +207,10 @@ int main(int argc, char **argv)
         dt = data_arr[0] - last_time;
         if( tick == 0)
             dt = 0.001;
+
         integral_term = integral_term + (tau_m + C_T*q_dot - g - residual)*dt;
         residual = K_mob * (integral_term - A*q_dot);
         last_time = data_arr[0];
-        Vector6d t;
-        t = tau_m + C_T*q_dot - g ;
 
         // Send request to render
         // modelconfig.request.joint_positions[0]= q(0);
@@ -219,6 +233,7 @@ int main(int argc, char **argv)
         << "\t" << data_arr[49]<< "\t" << data_arr[50]<< "\t" << data_arr[51]<< "\t" << data_arr[52]<< "\t" << data_arr[53]<< "\t" << data_arr[54] \
         << "\t" << tau_m(0)-data_arr[67]<< "\t" << tau_m(1)-data_arr[68]<< "\t" << tau_m(2)-data_arr[69]<< "\t" << tau_m(3)-data_arr[70]<< "\t" << tau_m(4)-data_arr[71]<< "\t" << tau_m(5)-data_arr[72]<< std::endl;
     }
+
     openFile.close();
     result.close();
 
