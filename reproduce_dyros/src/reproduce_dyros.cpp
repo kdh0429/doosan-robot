@@ -1,3 +1,6 @@
+// ************************************************************************************
+//      Usage: rosrun reproduce_dyros reproduce_dyros 20190829 free 0_00kg 1 
+// ************************************************************************************
 #include "ros/ros.h"
 #include "std_msgs/Float64MultiArray.h"
 #include <fstream>
@@ -9,6 +12,8 @@
 
 #include <rbdl/rbdl.h>
 #include <rbdl/addons/urdfreader/urdfreader.h>
+
+#include <ctime>
 
 const int dof = 6;
 typedef Eigen::Matrix< double, 6, 1 > Vector6d;
@@ -74,8 +79,9 @@ Eigen::MatrixXd getC(RigidBodyDynamics::Model &model, Vector6d q, Vector6d qdot)
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "dyros_reproduce");
-
+    // Uncomment to simulate with Gazebo
+    srand((unsigned int)time(0));
+    ros::init(argc, argv, "dyros_reproduce"+std::to_string(std::rand()));
     ros::NodeHandle n;
 
     // Don't use simulation time since we will stop simulation(simulation is used just for rendering)
@@ -92,16 +98,27 @@ int main(int argc, char **argv)
     std_srvs::Empty pauseSrv;
     physics_client.call(pauseSrv);
 
+    // Data Selection
+    std::string experiment_date = argv[1];
+    std::string collision_type = argv[2];
+    std::string tool_weight = argv[3];
+    std::string folder_idx = argv[4];
+
     // Load URDF model
     RigidBodyDynamics::Model model;
-    RigidBodyDynamics::Addons::URDFReadFromFile("/home/kim/doosan_ws/src/doosan-robot/dsr_description/urdf/m0609_modify.urdf", &model, false, false);
+    std::string urdf_name = "/home/kim/doosan_ws/src/doosan-robot/dsr_description/urdf/m0609_modify_" + tool_weight +".urdf";
+    RigidBodyDynamics::Addons::URDFReadFromFile(urdf_name.c_str(), &model, false, false);
 
     // Load data file
-    std::ifstream openFile("/home/kim/ssd2/dusan_ws/2nd/data/robot1_20190829/free/0_00kg/1/DRCL_Data_1.txt");
+    std::string data_file_name = "/home/kim/ssd2/dusan_ws/2nd/data_tro/robot1_" + experiment_date + "/" + collision_type + "/" + tool_weight + "/" + folder_idx + "/" +"DRCL_Data_";
+    int file_idx = 1;
+    std::string open_data_file_name = data_file_name + std::to_string(file_idx) + ".txt";
+    std::ifstream openFile(open_data_file_name);
     std::string line;
     std::stringstream line_ss;
-    float data_arr[100];
+    double data_arr[100];
     if( !openFile.is_open() ){
+        std::cout << "Failed to open the data file: " << open_data_file_name << std::endl;
         return 0;
     }
 
@@ -162,10 +179,28 @@ int main(int argc, char **argv)
     double dt = 0.001;
     double last_time = 0.0;
     std::ofstream result; 
-    result.open("/home/kim/doosan_ws/src/doosan-robot/reproduce_dyros/result/result.txt");
+    std::string write_data_file_name = data_file_name + "MOB" + std::to_string(file_idx) + ".txt";
+    result.open(write_data_file_name);
 
-    while (ros::ok() && openFile.peek() != EOF)
+    while (ros::ok())
     {
+        if (openFile.peek() == EOF)
+        {
+            result.close();
+            openFile.close();
+            file_idx++;
+
+            std::string open_data_file_name = data_file_name + std::to_string(file_idx) + ".txt";
+            openFile.open(open_data_file_name);
+            if( !openFile.is_open() ){
+                std::cout<<"Finished Proccessing" << std::endl;
+                return 0;
+            }
+
+            std::string write_data_file_name = data_file_name + "MOB" + std::to_string(file_idx) + ".txt";
+            result.open(write_data_file_name);
+        }
+
         int count = 0;
         q.setZero();
         q_dot.setZero();
@@ -178,7 +213,7 @@ int main(int argc, char **argv)
         q_dot_zero.setZero();
 
         // Read data
-        float data;
+        double data;
         getline(openFile, line);
         line_ss.str(line);
         while(line_ss >> data)
@@ -207,6 +242,13 @@ int main(int argc, char **argv)
         dt = data_arr[0] - last_time;
         if( tick == 0)
             dt = 0.001;
+        if (dt < 0.0)
+        {
+            integral_term.setZero();
+            residual.setZero();
+            dt = 0.001;
+            std::cout << "dt is smaller than 0!" << std::endl;
+        }
 
         integral_term = integral_term + (tau_m + C_T*q_dot - g - residual)*dt;
         residual = K_mob * (integral_term - A*q_dot);
@@ -224,14 +266,13 @@ int main(int argc, char **argv)
         if (tick%100 == 0)
         {
             std::cout << "Time: " << data_arr[0] << std::endl;
-            std::cout << "tau_m: " << tau_m(1) << std::endl;
-            std::cout << "g: "  << g(1) << std::endl<< std::endl;
         }
         // loop_rate.sleep();
         tick++;
-        result << data_arr[0] << "\t" << residual(0) << "\t" <<residual(1)<< "\t" << residual(2)<< "\t" << residual(3)<< "\t" << residual(4)<< "\t" << residual(5) \
-        << "\t" << data_arr[49]<< "\t" << data_arr[50]<< "\t" << data_arr[51]<< "\t" << data_arr[52]<< "\t" << data_arr[53]<< "\t" << data_arr[54] \
-        << "\t" << tau_m(0)-data_arr[67]<< "\t" << tau_m(1)-data_arr[68]<< "\t" << tau_m(2)-data_arr[69]<< "\t" << tau_m(3)-data_arr[70]<< "\t" << tau_m(4)-data_arr[71]<< "\t" << tau_m(5)-data_arr[72]<< std::endl;
+        for (int i=0; i<73; i++){
+            result << data_arr[i] << "\t";
+        }
+        result << residual(0) << "\t" <<residual(1)<< "\t" << residual(2)<< "\t" << residual(3)<< "\t" << residual(4)<< "\t" << residual(5) << std::endl;
     }
 
     openFile.close();
