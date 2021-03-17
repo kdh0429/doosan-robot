@@ -5,6 +5,7 @@
 #include "std_msgs/Float64MultiArray.h"
 #include <fstream>
 #include <iostream>
+#include <iomanip> 
 #include <sstream>
 
 #include "std_srvs/Empty.h"
@@ -181,6 +182,7 @@ int main(int argc, char **argv)
     std::ofstream result; 
     std::string write_data_file_name = data_file_name + "MOB" + std::to_string(file_idx) + ".txt";
     result.open(write_data_file_name);
+    result << std::fixed << std::setprecision(4);
 
     while (ros::ok())
     {
